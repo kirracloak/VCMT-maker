@@ -104,10 +104,9 @@ def first_empty_row_index(table) -> Optional[int]:
     return None
 
 def extract_units_from_doc(doc: Document) -> Dict[str, Dict]:
-   paras = [normalise_space(t) for t in all_doc_text_lines(doc) if normalise_space(t)]
-full_text = "\n".join(all_doc_text_lines(doc))
-full_text_up = full_text.upper()
-validated_codes = [c for c in user_unit_codes if c.strip().upper() in full_text_up]
+    # Read both paragraphs and table cells
+    paras = [normalise_space(t) for t in all_doc_text_lines(doc) if normalise_space(t)]
+    # ...rest of the function...
     units: Dict[str, Dict] = {}
     for code in unit_codes:
         indices = [i for i, p in enumerate(paras) if code in p]
