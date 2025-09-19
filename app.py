@@ -52,11 +52,9 @@ def respond_to_instruction_request(user_text: str) -> Optional[str]:
 # ----------------------------
 
 def all_doc_text_lines(doc: Document) -> Iterable[str]:
-    # paragraphs
     for p in doc.paragraphs:
         if p.text:
             yield p.text
-    # table cells
     for tbl in doc.tables:
         for row in tbl.rows:
             for cell in row.cells:
@@ -93,11 +91,8 @@ def first_empty_row_index(table) -> Optional[int]:
     return None
 
 def extract_units_from_doc(doc: Document) -> Dict[str, Dict]:
-    # Gather text from paragraphs AND tables
     paras = [normalise_space(t) for t in all_doc_text_lines(doc) if normalise_space(t)]
     full_text = "\n".join(paras)
-
-    # Unit code pattern: e.g., BSBWHS311, SITXWHS005
     code_candidates = re.findall(r"\b[A-Z]{3,}[A-Z0-9]{2,}\b", full_text)
     unit_codes = sorted(set(code_candidates))
 
@@ -108,7 +103,7 @@ def extract_units_from_doc(doc: Document) -> Dict[str, Dict]:
             continue
         idx = indices[0]
 
-        # Guess unit name: same line after separator or next lines
+        # Try same line "CODE - Name" or nearby lines for a title-ish string
         name = ""
         m = re.search(rf"{code}\s*[-:–]\s*(.+)", paras[idx])
         if m:
@@ -154,9 +149,4 @@ def build_common_evidence(target_evidence: List[str], prior_evidence_blocks: Lis
         score = float(sim[i, j])
         pairs.append((target[i], score))
 
-    pairs.sort(key=lambda x: x[1], reverse=True)
-    out = []
-    for t, _ in pairs:
-        if t not in out:
-            out.append(t)
-        if
+    pairs.sort(key=lambda x: x[1], reverse
