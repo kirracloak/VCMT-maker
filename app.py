@@ -10,6 +10,17 @@ from docx import Document
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
+def all_doc_text_lines(doc):
+    # Yield text from both paragraphs and every table cell
+    for p in doc.paragraphs:
+        if p.text:
+            yield p.text
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    if p.text:
+                        yield p.text
 
 # ----------------------------
 # Utilities and policy helpers
@@ -93,10 +104,10 @@ def first_empty_row_index(table) -> Optional[int]:
     return None
 
 def extract_units_from_doc(doc: Document) -> Dict[str, Dict]:
-    paras = [normalise_space(t) for t in all_doc_text_lines(doc) if normalise_space(t)]
-    full_text = "\n".join(paras)
-    code_candidates = re.findall(r"\b[A-Z]{3,}[A-Z0-9]{2,}\b", full_text)
-    unit_codes = sorted(set(code_candidates))
+   paras = [normalise_space(t) for t in all_doc_text_lines(doc) if normalise_space(t)]
+full_text = "\n".join(all_doc_text_lines(doc))
+full_text_up = full_text.upper()
+validated_codes = [c for c in user_unit_codes if c.strip().upper() in full_text_up]
     units: Dict[str, Dict] = {}
     for code in unit_codes:
         indices = [i for i, p in enumerate(paras) if code in p]
