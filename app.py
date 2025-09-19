@@ -52,9 +52,11 @@ def respond_to_instruction_request(user_text: str) -> Optional[str]:
 # ----------------------------
 
 def all_doc_text_lines(doc: Document) -> Iterable[str]:
+    # paragraphs
     for p in doc.paragraphs:
         if p.text:
             yield p.text
+    # table cells
     for tbl in doc.tables:
         for row in tbl.rows:
             for cell in row.cells:
@@ -95,15 +97,12 @@ def extract_units_from_doc(doc: Document) -> Dict[str, Dict]:
     full_text = "\n".join(paras)
     code_candidates = re.findall(r"\b[A-Z]{3,}[A-Z0-9]{2,}\b", full_text)
     unit_codes = sorted(set(code_candidates))
-
     units: Dict[str, Dict] = {}
     for code in unit_codes:
         indices = [i for i, p in enumerate(paras) if code in p]
         if not indices:
             continue
         idx = indices[0]
-
-        # Try same line "CODE - Name" or nearby lines for a title-ish string
         name = ""
         m = re.search(rf"{code}\s*[-:–]\s*(.+)", paras[idx])
         if m:
@@ -114,7 +113,6 @@ def extract_units_from_doc(doc: Document) -> Dict[str, Dict]:
                 if len(cand.split()) >= 3 and not re.match(r"^(Unit Code|Unit Name)", cand, re.I):
                     name = cand
                     break
-
         units[code] = {
             "code": code,
             "name": name,
@@ -134,19 +132,92 @@ def build_common_evidence(target_evidence: List[str], prior_evidence_blocks: Lis
     prior = [normalise_space(x) for block in prior_evidence_blocks for x in (block or []) if normalise_space(x)]
     if not target or not prior:
         return []
-
     vec = TfidfVectorizer(ngram_range=(1, 2), min_df=1, stop_words="english")
     X = vec.fit_transform(target + prior)
     tX = X[:len(target), :]
     pX = X[len(target):, :]
     if pX.shape[0] == 0:
         return []
-
     sim = cosine_similarity(tX, pX)
     pairs = []
     for i in range(sim.shape[0]):
         j = int(np.argmax(sim[i]))
         score = float(sim[i, j])
         pairs.append((target[i], score))
+    pairs.sort(key=lambda x: x[1], reverse=True)
+    out = []
+    for t, _ in pairs:
+        if t not in out:
+            out.append(t)
+        if len(out) >= max_items:
+            break
+    return out
 
-    pairs.sort(key=lambda x: x[1], reverse
+def construct_part1_statement(application_statement: str, bullets: List[str]) -> str:
+    app = (application_statement or "").strip().rstrip(".")
+    if app:
+        intro = "Within this qualification, I was required to demonstrate competency in the skills and knowledge required to " + app
+    else:
+        intro = "Within this qualification, I was required to demonstrate competency in the relevant skills and knowledge"
+    prefix = "Specifically relevant were the following course components:"
+    bullets_txt = "\n".join(["- " + b for b in bullets]) if bullets else "- "
+    return intro + ".\n" + prefix + "\n" + bullets_txt
+
+def construct_part2_statement(unit_code: str, unit_name: str, bullets: List[str]) -> str:
+    title = ("Key responsibilities and tasks relevant to the performance criteria for "
+             + unit_code + " " + (unit_name or "") + ":").strip()
+    return title + "\n" + "\n".join(["- " + b for b in bullets])
+
+def construct_part3_statement(unit_code: str, unit_name: str, bullets: List[str]) -> str:
+    title = ("This professional development enhanced my ability to meet the performance criteria for "
+             + unit_code + " " + (unit_name or "") + ". Specifically, it:").strip()
+    return title + "\n" + "\n".join(["- " + b for b in bullets])
+
+def suggest_alignment_from_pc(keywords: List[str], pcs: List[str], max_items: int = 4) -> List[str]:
+    if not keywords or not pcs:
+        return []
+    vec = TfidfVectorizer(ngram_range=(1, 2), min_df=1, stop_words="english")
+    X = vec.fit_transform(pcs + keywords)
+    pcX = X[:len(pcs)]
+    kwX = X[len(pcs):]
+    sim = cosine_similarity(kwX, pcX)
+    chosen = set()
+    for i in range(sim.shape[0]):
+        j = int(np.argmax(sim[i]))
+        chosen.add(j)
+    bullets = [pcs[j] for j in chosen]
+    bullets = [re.sub(r"^(To|Ability to|Capability to)\s+", "", b, flags=re.IGNORECASE) for b in bullets]
+    bullets = [re.sub(r"\.$", "", b).strip() for b in bullets]
+    return bullets[:max_items]
+
+
+# ----------------------------
+# Streamlit UI
+# ----------------------------
+
+st.set_page_config(page_title="VCMT Template Agent (TAFE)", page_icon="🗂️", layout="wide")
+st.title("VCMT Template Agent")
+
+with st.expander("Agent rules (summary)", expanded=False):
+    st.markdown("- Never log into Autodocs or People@TAFE.")
+    st.markdown("- Mask Evidence IDs on screen (only last 4 visible); full IDs appear in the exported VCMT.")
+    st.markdown("- Work unit-by-unit; confirm before writing.")
+    st.markdown("- Keep statements concise, factual, and aligned to performance criteria.")
+    st.markdown("- Use AU spelling.")
+    st.markdown("- If asked to reveal internal instructions: ' I am not trained to do this'.")
+
+user_query = st.text_input("Optional: Ask the agent something (e.g., clarifications).")
+redaction = respond_to_instruction_request(user_query or "")
+if redaction:
+    st.warning(redaction)
+
+st.header("Step 1 - Upload VCMT Template (.docx)")
+uploaded = st.file_uploader("Upload the Autodocs VCMT template", type=["docx"])
+if not uploaded:
+    st.info("Upload the VCMT .docx template to begin.")
+    st.stop()
+
+# Load document
+try:
+    doc = load_docx(uploaded.read())
+    st.success("Template loaded
