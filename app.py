@@ -52,18 +52,20 @@ def list_tables_info(doc: Document) -> List[str]:
     return out
 
 def find_part_tables(doc: Document):
-    """Return indexes of Part1, Part2, Part3 tables by header text (case insensitive)."""
+    """Return indexes of Part1, Part2, Part3 tables by unique header text fragments."""
     p1 = p2 = p3 = -1
     for i, t in enumerate(doc.tables):
         if len(t.columns) < 4:
             continue
         header = " ".join([normalise_space(c.text) for c in t.rows[0].cells]).lower()
-        if "qualification" in header or "units of competency" in header:
-            if p1 == -1: p1 = i
-        elif "industry" in header or "community experience" in header:
-            if p2 == -1: p2 = i
-        elif "professional development" in header:
-            if p3 == -1: p3 = i
+
+        if "qualification details" in header and p1 == -1:
+            p1 = i
+        elif "role details" in header and p2 == -1:
+            p2 = i
+        elif "activity details" in header and p3 == -1:
+            p3 = i
+
     return p1, p2, p3
 
 def insert_into_table(table, values: List[str]):
