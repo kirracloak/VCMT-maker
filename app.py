@@ -52,7 +52,7 @@ def list_tables_info(doc: Document) -> List[str]:
     return out
 
 def find_part_tables(doc: Document):
-    """Return indexes of Part1, Part2, Part3 tables by header text."""
+    """Return indexes of Part1, Part2, Part3 tables by header text (case insensitive)."""
     p1 = p2 = p3 = -1
     for i, t in enumerate(doc.tables):
         if len(t.columns) < 4:
@@ -60,11 +60,33 @@ def find_part_tables(doc: Document):
         header = " ".join([normalise_space(c.text) for c in t.rows[0].cells]).lower()
         if "qualification" in header or "units of competency" in header:
             if p1 == -1: p1 = i
-        if "industry" in header or "community experience" in header:
+        elif "industry" in header or "community experience" in header:
             if p2 == -1: p2 = i
-        if "professional development" in header:
+        elif "professional development" in header:
             if p3 == -1: p3 = i
     return p1, p2, p3
+
+def insert_into_table(table, values: List[str]):
+    """
+    Insert into the first free (blank) row if available, otherwise add a new row.
+    values: list of strings matching table columns.
+    """
+    def row_is_blank(row):
+        return all(not normalise_space(c.text) for c in row.cells)
+
+    # Try to find first completely blank row (skip header row 0)
+    target_row = None
+    for r in table.rows[1:]:
+        if row_is_blank(r):
+            target_row = r
+            break
+
+    if not target_row:
+        target_row = table.add_row()
+
+    for i, v in enumerate(values):
+        if i < len(target_row.cells):
+            target_row.cells[i].text = v or ""
 
 def mask_evidence_id(eid: str) -> str:
     eid = (eid or "").strip()
@@ -215,31 +237,23 @@ if st.button("Generate and Download VCMT (.docx)"):
     p1_idx, p2_idx, p3_idx = find_part_tables(out_doc)
 
     if p1_idx != -1:
-        table = out_doc.tables[p1_idx]
         for r in rows_p1:
-            new_row = table.add_row()
-            new_row.cells[0].text = r["qual_name"]
-            new_row.cells[1].text = r["year"]
-            new_row.cells[2].text = r["generated_statement"]
-            new_row.cells[3].text = r["evidence_id"]
+            insert_into_table(out_doc.tables[p1_idx], [
+                r["qual_name"], r["year"], r["generated_statement"], r["evidence_id"]
+            ])
 
     if p2_idx != -1:
-        table = out_doc.tables[p2_idx]
         for r in rows_p2:
-            new_row = table.add_row()
-            new_row.cells[0].text = r["role_title"] + (f' ({r["employer"]})' if r["employer"] else "")
-            new_row.cells[1].text = r["years_worked"]
-            new_row.cells[2].text = r["generated_statement"]
-            new_row.cells[3].text = r["evidence_id"]
+            insert_into_table(out_doc.tables[p2_idx], [
+                r["role_title"] + (f' ({r["employer"]})' if r["employer"] else ""),
+                r["years_worked"], r["generated_statement"], r["evidence_id"]
+            ])
 
     if p3_idx != -1:
-        table = out_doc.tables[p3_idx]
         for r in rows_p3:
-            new_row = table.add_row()
-            new_row.cells[0].text = r["pd_title"]
-            new_row.cells[1].text = r["year"]
-            new_row.cells[2].text = r["generated_statement"]
-            new_row.cells[3].text = r["evidence_id"]
+            insert_into_table(out_doc.tables[p3_idx], [
+                r["pd_title"], r["year"], r["generated_statement"], r["evidence_id"]
+            ])
 
     today = datetime.date.today().isoformat().replace("-", "")
     filename = f"VCMT_{'_'.join(validated_codes)}_{today}.docx"
