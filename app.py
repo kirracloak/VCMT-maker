@@ -11,7 +11,6 @@ def normalise_space(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "")).strip()
 
 def all_doc_text_lines(doc: Document) -> Iterable[str]:
-    """Yield all text lines from paragraphs and table cells."""
     for p in doc.paragraphs:
         if p.text:
             yield p.text
@@ -26,7 +25,6 @@ def load_docx(file_bytes: bytes) -> Document:
     return Document(io.BytesIO(file_bytes))
 
 def extract_units_from_doc(doc: Document) -> Dict[str, Dict]:
-    """Extract unit codes and names."""
     paras = [normalise_space(t) for t in all_doc_text_lines(doc) if normalise_space(t)]
     full_text = "\n".join(paras)
     codes = sorted(set(re.findall(r"\b[A-Z]{3,}[A-Z0-9]{2,}\b", full_text)))
@@ -54,16 +52,19 @@ def list_tables_info(doc: Document) -> List[str]:
     return out
 
 def find_part_tables(doc: Document):
-    """Find indexes of Part 1, Part 2, Part 3 tables based on headers."""
+    """Return indexes of Part1, Part2, Part3 tables or -1 if not found."""
     p1 = p2 = p3 = -1
     for i, t in enumerate(doc.tables):
-        if len(t.columns) >= 4:
-            header = " ".join([normalise_space(c.text) for c in t.rows[0].cells]).lower()
-            if p1 == -1:
-                p1 = i
-            if "industry" in header or "community experience" in header:
+        if len(t.columns) < 4:
+            continue
+        header = " ".join([normalise_space(c.text) for c in t.rows[0].cells]).lower()
+        if p1 == -1:
+            p1 = i
+        if "industry" in header or "community experience" in header:
+            if p2 == -1:
                 p2 = i
-            if "professional development" in header:
+        if "professional development" in header:
+            if p3 == -1:
                 p3 = i
     return p1, p2, p3
 
@@ -146,10 +147,10 @@ for unit_code in validated_codes:
             st.text_input("Qualification name", key=f"{unit_code}_p1_name_{idx}", value=entry["qual_name"])
             st.text_input("Year completed (YYYY)", key=f"{unit_code}_p1_year_{idx}", value=entry["year"])
             st.text_input("Evidence ID", key=f"{unit_code}_p1_eid_{idx}", value=entry["evidence_id"])
-            st.session_state.units_data[key]["part1"][idx]["qual_name"] = st.session_state[f"{unit_code}_p1_name_{idx}"]
-            st.session_state.units_data[key]["part1"][idx]["year"] = st.session_state[f"{unit_code}_p1_year_{idx}"]
-            st.session_state.units_data[key]["part1"][idx]["evidence_id"] = st.session_state[f"{unit_code}_p1_eid_{idx}"]
-            st.session_state.units_data[key]["part1"][idx]["generated_statement"] = f"Within this qualification, I was required to demonstrate competency in {unit_name}."
+            entry["qual_name"] = st.session_state[f"{unit_code}_p1_name_{idx}"]
+            entry["year"] = st.session_state[f"{unit_code}_p1_year_{idx}"]
+            entry["evidence_id"] = st.session_state[f"{unit_code}_p1_eid_{idx}"]
+            entry["generated_statement"] = f"Within this qualification, I was required to demonstrate competency in {unit_name}."
 
         # --- Part 2: multiple roles ---
         st.subheader("Part 2 — Industry / Community Experience")
@@ -160,11 +161,11 @@ for unit_code in validated_codes:
             st.text_input("Employer", key=f"{unit_code}_p2_emp_{idx}", value=entry["employer"])
             st.text_input("Years worked (e.g., 2013–2015)", key=f"{unit_code}_p2_years_{idx}", value=entry["years_worked"])
             st.text_input("Evidence ID", key=f"{unit_code}_p2_eid_{idx}", value=entry["evidence_id"])
-            st.session_state.units_data[key]["part2"][idx]["role_title"] = st.session_state[f"{unit_code}_p2_role_{idx}"]
-            st.session_state.units_data[key]["part2"][idx]["employer"] = st.session_state[f"{unit_code}_p2_emp_{idx}"]
-            st.session_state.units_data[key]["part2"][idx]["years_worked"] = st.session_state[f"{unit_code}_p2_years_{idx}"]
-            st.session_state.units_data[key]["part2"][idx]["evidence_id"] = st.session_state[f"{unit_code}_p2_eid_{idx}"]
-            st.session_state.units_data[key]["part2"][idx]["generated_statement"] = f"Key responsibilities relevant to {unit_code} {unit_name}."
+            entry["role_title"] = st.session_state[f"{unit_code}_p2_role_{idx}"]
+            entry["employer"] = st.session_state[f"{unit_code}_p2_emp_{idx}"]
+            entry["years_worked"] = st.session_state[f"{unit_code}_p2_years_{idx}"]
+            entry["evidence_id"] = st.session_state[f"{unit_code}_p2_eid_{idx}"]
+            entry["generated_statement"] = f"Key responsibilities relevant to {unit_code} {unit_name}."
 
         # --- Part 3: multiple PDs ---
         st.subheader("Part 3 — Professional Development")
@@ -174,59 +175,68 @@ for unit_code in validated_codes:
             st.text_input("PD title", key=f"{unit_code}_p3_title_{idx}", value=entry["pd_title"])
             st.text_input("Year (YYYY)", key=f"{unit_code}_p3_year_{idx}", value=entry["year"])
             st.text_input("Evidence ID", key=f"{unit_code}_p3_eid_{idx}", value=entry["evidence_id"])
-            st.session_state.units_data[key]["part3"][idx]["pd_title"] = st.session_state[f"{unit_code}_p3_title_{idx}"]
-            st.session_state.units_data[key]["part3"][idx]["year"] = st.session_state[f"{unit_code}_p3_year_{idx}"]
-            st.session_state.units_data[key]["part3"][idx]["evidence_id"] = st.session_state[f"{unit_code}_p3_eid_{idx}"]
-            st.session_state.units_data[key]["part3"][idx]["generated_statement"] = f"This professional development enhanced my ability to meet criteria for {unit_code} {unit_name}."
+            entry["pd_title"] = st.session_state[f"{unit_code}_p3_title_{idx}"]
+            entry["year"] = st.session_state[f"{unit_code}_p3_year_{idx}"]
+            entry["evidence_id"] = st.session_state[f"{unit_code}_p3_eid_{idx}"]
+            entry["generated_statement"] = f"This professional development enhanced my ability to meet criteria for {unit_code} {unit_name}."
 
 # --- Step 4 ---
 st.header("Step 4 — QA and Export")
 rows_p1, rows_p2, rows_p3 = [], [], []
 for data in st.session_state.units_data.values():
     ucode = data["unit_code"]
-    uname = data["unit_name"]
     for p in data["part1"]:
-        rows_p1.append({"col1": p["qual_name"], "col2": p["year"], "col3": p["generated_statement"], "col4": p["evidence_id"]})
+        rows_p1.append(p)
     for r in data["part2"]:
-        rows_p2.append({"col1": r["role_title"] + (f' ({r["employer"]})' if r["employer"] else ""), "col2": r["years_worked"], "col3": r["generated_statement"], "col4": r["evidence_id"]})
+        rows_p2.append(r)
     for r in data["part3"]:
-        rows_p3.append({"col1": r["pd_title"], "col2": r["year"], "col3": r["generated_statement"], "col4": r["evidence_id"]})
+        rows_p3.append(r)
 
-st.write(f"Part1 rows: {len(rows_p1)} | Part2 rows: {len(rows_p2)} | Part3 rows: {len(rows_p3)}")
+# QA display
+st.subheader("QA Preview")
+if rows_p1:
+    st.write("**Part 1 Entries**")
+    for i, r in enumerate(rows_p1, 1):
+        st.write(f"{i}. {r['qual_name']} | {r['year']} | Evidence: {mask_evidence_id(r['evidence_id'])}")
+if rows_p2:
+    st.write("**Part 2 Entries**")
+    for i, r in enumerate(rows_p2, 1):
+        st.write(f"{i}. {r['role_title']} ({r['employer']}) | {r['years_worked']} | Evidence: {mask_evidence_id(r['evidence_id'])}")
+if rows_p3:
+    st.write("**Part 3 Entries**")
+    for i, r in enumerate(rows_p3, 1):
+        st.write(f"{i}. {r['pd_title']} | {r['year']} | Evidence: {mask_evidence_id(r['evidence_id'])}")
 
 if st.button("Generate and Download VCMT (.docx)"):
     out_doc = load_docx(st.session_state.uploaded_bytes)
     p1_idx, p2_idx, p3_idx = find_part_tables(out_doc)
 
-    # insert into Part 1 table
     if p1_idx != -1:
         table = out_doc.tables[p1_idx]
         for r in rows_p1:
             new_row = table.add_row()
-            new_row.cells[0].text = r["col1"]
-            new_row.cells[1].text = r["col2"]
-            new_row.cells[2].text = r["col3"]
-            new_row.cells[3].text = r["col4"]
+            new_row.cells[0].text = r["qual_name"]
+            new_row.cells[1].text = r["year"]
+            new_row.cells[2].text = r["generated_statement"]
+            new_row.cells[3].text = r["evidence_id"]
 
-    # insert into Part 2 table
     if p2_idx != -1:
         table = out_doc.tables[p2_idx]
         for r in rows_p2:
             new_row = table.add_row()
-            new_row.cells[0].text = r["col1"]
-            new_row.cells[1].text = r["col2"]
-            new_row.cells[2].text = r["col3"]
-            new_row.cells[3].text = r["col4"]
+            new_row.cells[0].text = r["role_title"] + (f' ({r["employer"]})' if r["employer"] else "")
+            new_row.cells[1].text = r["years_worked"]
+            new_row.cells[2].text = r["generated_statement"]
+            new_row.cells[3].text = r["evidence_id"]
 
-    # insert into Part 3 table
     if p3_idx != -1:
         table = out_doc.tables[p3_idx]
         for r in rows_p3:
             new_row = table.add_row()
-            new_row.cells[0].text = r["col1"]
-            new_row.cells[1].text = r["col2"]
-            new_row.cells[2].text = r["col3"]
-            new_row.cells[3].text = r["col4"]
+            new_row.cells[0].text = r["pd_title"]
+            new_row.cells[1].text = r["year"]
+            new_row.cells[2].text = r["generated_statement"]
+            new_row.cells[3].text = r["evidence_id"]
 
     today = datetime.date.today().isoformat().replace("-", "")
     filename = f"VCMT_{'_'.join(validated_codes)}_{today}.docx"
