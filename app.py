@@ -422,4 +422,32 @@ if st.button("Generate and Download VCMT (.docx)"):
     table = out_doc.tables[t_index]
 
     # Append each collected row
-    for
+    for r in all_rows:
+        new_row = table.add_row()
+        # Column 1: name/title
+        new_row.cells[0].text = r["col1"]
+        # Column 2: year / years
+        new_row.cells[1].text = r["col2"] or ""
+        # Column 3: generated statement (write the full generated text)
+        new_row.cells[2].text = r["col3"] or ""
+        # Column 4: full Evidence ID (not masked)
+        new_row.cells[3].text = r["col4"] or ""
+
+    # QA: insert a simple flag row if pending IDs exist
+    if pending:
+        note_row = table.add_row()
+        note_row.cells[0].text = "NOTE"
+        note_row.cells[1].text = ""
+        note_row.cells[2].text = f"{len(pending)} row(s) have Pending or missing Evidence IDs. Please update."
+        note_row.cells[3].text = ""
+
+    # Build filename
+    today = datetime.date.today().isoformat().replace("-", "")
+    codes_for_name = "_".join(validated_codes)
+    filename = f"VCMT_{codes_for_name}_{today}.docx"
+
+    bio = io.BytesIO()
+    out_doc.save(bio)
+    bio.seek(0)
+    st.success("VCMT generated.")
+    st.download_button("Download filled VCMT (.docx)", data=bio.read(), file_name=filename, mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
