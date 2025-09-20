@@ -216,14 +216,19 @@ for data in st.session_state.units_data.values():
 st.subheader("QA Preview")
 def qa_block(rows, partname):
     for i, r in enumerate(rows, 1):
-        missing = not r["qual_name"] if "qual_name" in r else not r.get("role_title", r.get("pd_title"))
-        pending = (not r["evidence_id"]) or r["evidence_id"].lower()=="pending"
+        label = r.get("qual_name") or r.get("role_title") or r.get("pd_title")
+        year_val = r.get("year", r.get("years_worked", ""))
+        eid = r.get("evidence_id","")
+        pending = (not eid) or eid.lower()=="pending"
         invalid_year = "year" in r and r["year"] and not validate_year(r["year"])
+        missing = not label
         color = "lightgreen"
         if missing or invalid_year: color="salmon"
         elif pending: color="khaki"
-        label = f"{r.get('qual_name') or r.get('role_title') or r.get('pd_title')} | {r.get('year',r.get('years_worked',''))} | Evidence: {mask_evidence_id(r['evidence_id'])}"
-        st.markdown(f"<div style='background-color:{color}; padding:6px; border-radius:5px;'>{partname}: {label}</div>", unsafe_allow_html=True)
+        st.markdown(
+            f"<div style='background-color:{color}; padding:6px; border-radius:5px;'>{partname}: {label} | {year_val} | Evidence: {mask_evidence_id(eid)}</div>",
+            unsafe_allow_html=True
+        )
         if st.button(f"Edit {partname} Row {i}", key=f"edit_{partname}_{i}"):
             st.session_state.edit_unit = row_to_unit[i-1]
             st.experimental_rerun()
