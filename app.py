@@ -52,20 +52,18 @@ def list_tables_info(doc: Document) -> List[str]:
     return out
 
 def find_part_tables(doc: Document):
-    """Return indexes of Part1, Part2, Part3 tables or -1 if not found."""
+    """Return indexes of Part1, Part2, Part3 tables by header text."""
     p1 = p2 = p3 = -1
     for i, t in enumerate(doc.tables):
         if len(t.columns) < 4:
             continue
         header = " ".join([normalise_space(c.text) for c in t.rows[0].cells]).lower()
-        if p1 == -1:
-            p1 = i
+        if "qualification" in header or "units of competency" in header:
+            if p1 == -1: p1 = i
         if "industry" in header or "community experience" in header:
-            if p2 == -1:
-                p2 = i
+            if p2 == -1: p2 = i
         if "professional development" in header:
-            if p3 == -1:
-                p3 = i
+            if p3 == -1: p3 = i
     return p1, p2, p3
 
 def mask_evidence_id(eid: str) -> str:
@@ -75,6 +73,14 @@ def mask_evidence_id(eid: str) -> str:
     if len(eid) <= 4:
         return "*" * (len(eid)-1) + eid[-1] if len(eid) > 1 else eid
     return "*" * (len(eid)-4) + eid[-4:]
+
+def validate_year(y: str) -> bool:
+    try:
+        yr = int(y)
+        this_year = datetime.date.today().year
+        return 1000 <= yr <= this_year
+    except:
+        return False
 
 # ---------- Streamlit UI ----------
 st.set_page_config(page_title="VCMT Unit Code Filler", page_icon="🗂", layout="wide")
@@ -123,6 +129,8 @@ st.success("Validated unit codes: " + ", ".join(validated_codes))
 
 if "units_data" not in st.session_state:
     st.session_state.units_data = {}
+if "edit_unit" not in st.session_state:
+    st.session_state.edit_unit = None
 
 # --- Step 3 ---
 st.header("Step 3 — Enter details for each unit")
@@ -138,74 +146,69 @@ for unit_code in validated_codes:
             "part3": []
         }
 
-    with st.expander(f"{unit_code} — {unit_name}", expanded=True):
-        # --- Part 1: multiple qualifications ---
+    expanded_flag = (st.session_state.edit_unit == unit_code)
+    with st.expander(f"{unit_code} — {unit_name}", expanded=expanded_flag or True):
+        # --- Part 1 ---
         st.subheader("Part 1 — Qualifications / Units of Competency")
         if st.button(f"Add Qualification for {unit_code}", key=f"add_p1_{unit_code}"):
             st.session_state.units_data[key]["part1"].append({"qual_name":"", "year":"", "evidence_id":"", "generated_statement":""})
         for idx, entry in enumerate(st.session_state.units_data[key]["part1"]):
-            st.text_input("Qualification name", key=f"{unit_code}_p1_name_{idx}", value=entry["qual_name"])
-            st.text_input("Year completed (YYYY)", key=f"{unit_code}_p1_year_{idx}", value=entry["year"])
-            st.text_input("Evidence ID", key=f"{unit_code}_p1_eid_{idx}", value=entry["evidence_id"])
-            entry["qual_name"] = st.session_state[f"{unit_code}_p1_name_{idx}"]
-            entry["year"] = st.session_state[f"{unit_code}_p1_year_{idx}"]
-            entry["evidence_id"] = st.session_state[f"{unit_code}_p1_eid_{idx}"]
+            entry["qual_name"] = st.text_input("Qualification name", key=f"{unit_code}_p1_name_{idx}", value=entry["qual_name"])
+            entry["year"] = st.text_input("Year completed (YYYY)", key=f"{unit_code}_p1_year_{idx}", value=entry["year"])
+            entry["evidence_id"] = st.text_input("Evidence ID", key=f"{unit_code}_p1_eid_{idx}", value=entry["evidence_id"])
             entry["generated_statement"] = f"Within this qualification, I was required to demonstrate competency in {unit_name}."
 
-        # --- Part 2: multiple roles ---
+        # --- Part 2 ---
         st.subheader("Part 2 — Industry / Community Experience")
         if st.button(f"Add Experience for {unit_code}", key=f"add_p2_{unit_code}"):
             st.session_state.units_data[key]["part2"].append({"role_title":"", "employer":"", "years_worked":"", "evidence_id":"", "generated_statement":""})
         for idx, entry in enumerate(st.session_state.units_data[key]["part2"]):
-            st.text_input("Role title", key=f"{unit_code}_p2_role_{idx}", value=entry["role_title"])
-            st.text_input("Employer", key=f"{unit_code}_p2_emp_{idx}", value=entry["employer"])
-            st.text_input("Years worked (e.g., 2013–2015)", key=f"{unit_code}_p2_years_{idx}", value=entry["years_worked"])
-            st.text_input("Evidence ID", key=f"{unit_code}_p2_eid_{idx}", value=entry["evidence_id"])
-            entry["role_title"] = st.session_state[f"{unit_code}_p2_role_{idx}"]
-            entry["employer"] = st.session_state[f"{unit_code}_p2_emp_{idx}"]
-            entry["years_worked"] = st.session_state[f"{unit_code}_p2_years_{idx}"]
-            entry["evidence_id"] = st.session_state[f"{unit_code}_p2_eid_{idx}"]
+            entry["role_title"] = st.text_input("Role title", key=f"{unit_code}_p2_role_{idx}", value=entry["role_title"])
+            entry["employer"] = st.text_input("Employer", key=f"{unit_code}_p2_emp_{idx}", value=entry["employer"])
+            entry["years_worked"] = st.text_input("Years worked (e.g., 2013–2015)", key=f"{unit_code}_p2_years_{idx}", value=entry["years_worked"])
+            entry["evidence_id"] = st.text_input("Evidence ID", key=f"{unit_code}_p2_eid_{idx}", value=entry["evidence_id"])
             entry["generated_statement"] = f"Key responsibilities relevant to {unit_code} {unit_name}."
 
-        # --- Part 3: multiple PDs ---
+        # --- Part 3 ---
         st.subheader("Part 3 — Professional Development")
         if st.button(f"Add PD for {unit_code}", key=f"add_p3_{unit_code}"):
             st.session_state.units_data[key]["part3"].append({"pd_title":"", "year":"", "evidence_id":"", "generated_statement":""})
         for idx, entry in enumerate(st.session_state.units_data[key]["part3"]):
-            st.text_input("PD title", key=f"{unit_code}_p3_title_{idx}", value=entry["pd_title"])
-            st.text_input("Year (YYYY)", key=f"{unit_code}_p3_year_{idx}", value=entry["year"])
-            st.text_input("Evidence ID", key=f"{unit_code}_p3_eid_{idx}", value=entry["evidence_id"])
-            entry["pd_title"] = st.session_state[f"{unit_code}_p3_title_{idx}"]
-            entry["year"] = st.session_state[f"{unit_code}_p3_year_{idx}"]
-            entry["evidence_id"] = st.session_state[f"{unit_code}_p3_eid_{idx}"]
+            entry["pd_title"] = st.text_input("PD title", key=f"{unit_code}_p3_title_{idx}", value=entry["pd_title"])
+            entry["year"] = st.text_input("Year (YYYY)", key=f"{unit_code}_p3_year_{idx}", value=entry["year"])
+            entry["evidence_id"] = st.text_input("Evidence ID", key=f"{unit_code}_p3_eid_{idx}", value=entry["evidence_id"])
             entry["generated_statement"] = f"This professional development enhanced my ability to meet criteria for {unit_code} {unit_name}."
 
 # --- Step 4 ---
 st.header("Step 4 — QA and Export")
-rows_p1, rows_p2, rows_p3 = [], [], []
+rows_p1, rows_p2, rows_p3, row_to_unit = [], [], [], []
 for data in st.session_state.units_data.values():
     ucode = data["unit_code"]
     for p in data["part1"]:
-        rows_p1.append(p)
+        rows_p1.append(p); row_to_unit.append(ucode)
     for r in data["part2"]:
-        rows_p2.append(r)
+        rows_p2.append(r); row_to_unit.append(ucode)
     for r in data["part3"]:
-        rows_p3.append(r)
+        rows_p3.append(r); row_to_unit.append(ucode)
 
-# QA display
 st.subheader("QA Preview")
-if rows_p1:
-    st.write("**Part 1 Entries**")
-    for i, r in enumerate(rows_p1, 1):
-        st.write(f"{i}. {r['qual_name']} | {r['year']} | Evidence: {mask_evidence_id(r['evidence_id'])}")
-if rows_p2:
-    st.write("**Part 2 Entries**")
-    for i, r in enumerate(rows_p2, 1):
-        st.write(f"{i}. {r['role_title']} ({r['employer']}) | {r['years_worked']} | Evidence: {mask_evidence_id(r['evidence_id'])}")
-if rows_p3:
-    st.write("**Part 3 Entries**")
-    for i, r in enumerate(rows_p3, 1):
-        st.write(f"{i}. {r['pd_title']} | {r['year']} | Evidence: {mask_evidence_id(r['evidence_id'])}")
+def qa_block(rows, partname):
+    for i, r in enumerate(rows, 1):
+        missing = not r["qual_name"] if "qual_name" in r else not r.get("role_title", r.get("pd_title"))
+        pending = (not r["evidence_id"]) or r["evidence_id"].lower()=="pending"
+        invalid_year = "year" in r and r["year"] and not validate_year(r["year"])
+        color = "lightgreen"
+        if missing or invalid_year: color="salmon"
+        elif pending: color="khaki"
+        label = f"{r.get('qual_name') or r.get('role_title') or r.get('pd_title')} | {r.get('year',r.get('years_worked',''))} | Evidence: {mask_evidence_id(r['evidence_id'])}"
+        st.markdown(f"<div style='background-color:{color}; padding:6px; border-radius:5px;'>{partname}: {label}</div>", unsafe_allow_html=True)
+        if st.button(f"Edit {partname} Row {i}", key=f"edit_{partname}_{i}"):
+            st.session_state.edit_unit = row_to_unit[i-1]
+            st.experimental_rerun()
+
+if rows_p1: qa_block(rows_p1, "Part1")
+if rows_p2: qa_block(rows_p2, "Part2")
+if rows_p3: qa_block(rows_p3, "Part3")
 
 if st.button("Generate and Download VCMT (.docx)"):
     out_doc = load_docx(st.session_state.uploaded_bytes)
