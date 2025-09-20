@@ -24,23 +24,25 @@ def all_doc_text_lines(doc: Document) -> Iterable[str]:
 def load_docx(file_bytes: bytes) -> Document:
     return Document(io.BytesIO(file_bytes))
 
-def extract_units_from_doc(doc: Document) -> Dict[str, Dict]:
-    paras = [normalise_space(t) for t in all_doc_text_lines(doc) if normalise_space(t)]
-    full_text = "\n".join(paras)
-    codes = sorted(set(re.findall(r"\b[A-Z]{3,}[A-Z0-9]{2,}\b", full_text)))
-    units: Dict[str, Dict] = {}
-    for code in codes:
-        name = ""
-        for i, line in enumerate(paras):
-            if code in line:
-                m = re.search(rf"{code}\s*[-:]\s*(.+)", line)
-                if m:
-                    name = normalise_space(m.group(1))
-                elif i + 1 < len(paras) and len(paras[i + 1].split()) >= 3:
-                    name = paras[i + 1]
-                break
-        units[code] = {"code": code, "name": name}
-    return units
+def extract_units_from_table(doc: Document) -> Dict[str, str]:
+    """
+    Find table where first column header is 'Unit Code/s' and extract unit codes + names.
+    Returns dict {code: name}
+    """
+    for t in doc.tables:
+        if len(t.rows) > 0 and len(t.rows[0].cells) > 0:
+            header = normalise_space(t.rows[0].cells[0].text).lower()
+            if "unit code" in header:
+                units = {}
+                for row in t.rows[1:]:
+                    cells = row.cells
+                    if len(cells) >= 2:
+                        code = normalise_space(cells[0].text)
+                        name = normalise_space(cells[1].text) if len(cells) > 1 else ""
+                        if code:
+                            units[code.upper()] = name
+                return units
+    return {}
 
 def list_tables_info(doc: Document) -> List[str]:
     out = []
@@ -132,24 +134,14 @@ with st.expander("Template tables found", expanded=False):
         st.write(line)
 
 # --- Step 2 ---
-st.header("Step 2 — Detect & select unit(s)")
-extracted_units = extract_units_from_doc(doc)
-discovered_codes = sorted(extracted_units.keys())
-user_unit_codes = st.multiselect("Choose unit code(s)", options=discovered_codes, default=[])
-
-manual_units_input = st.text_input("Optional: add unit code(s) comma-separated")
-if manual_units_input.strip():
-    added = [normalise_space(x).upper() for x in manual_units_input.split(",") if normalise_space(x)]
-    user_unit_codes = list(dict.fromkeys([u.upper() for u in user_unit_codes] + added))
-
-full_text_up = "\n".join(all_doc_text_lines(doc)).upper()
-validated_codes = [c for c in user_unit_codes if c.strip().upper() in full_text_up]
-
-if not validated_codes:
-    st.info("Please select at least one valid unit code.")
+st.header("Step 2 — Units Detected in Template")
+units_in_table = extract_units_from_table(doc)
+if not units_in_table:
+    st.error("No units found in a table with 'Unit Code/s' as first column header.")
     st.stop()
-validated_codes = [c.strip().upper() for c in validated_codes]
-st.success("Validated unit codes: " + ", ".join(validated_codes))
+
+validated_codes = list(units_in_table.keys())
+st.success("Units detected: " + ", ".join([f"{c} — {units_in_table[c]}" for c in validated_codes]))
 
 if "units_data" not in st.session_state:
     st.session_state.units_data = {}
@@ -159,7 +151,7 @@ if "edit_unit" not in st.session_state:
 # --- Step 3 ---
 st.header("Step 3 — Enter details for each unit")
 for unit_code in validated_codes:
-    unit_name = extracted_units.get(unit_code, {}).get("name", "")
+    unit_name = units_in_table.get(unit_code, "")
     key = f"unit__{unit_code}"
     if key not in st.session_state.units_data:
         st.session_state.units_data[key] = {
@@ -180,7 +172,7 @@ for unit_code in validated_codes:
             entry["qual_name"] = st.text_input("Qualification name", key=f"{unit_code}_p1_name_{idx}", value=entry["qual_name"])
             entry["year"] = st.text_input("Year completed (YYYY)", key=f"{unit_code}_p1_year_{idx}", value=entry["year"])
             entry["evidence_id"] = st.text_input("Evidence ID", key=f"{unit_code}_p1_eid_{idx}", value=entry["evidence_id"])
-            entry["generated_statement"] = f"Within this qualification, I was required to demonstrate competency in {unit_name}."
+            entry["generated_statement"] = f"Within this qualification, I was required to demonstrate competency in {unit_name}"
 
         # --- Part 2 ---
         st.subheader("Part 2 — Industry / Community Experience")
@@ -191,7 +183,7 @@ for unit_code in validated_codes:
             entry["employer"] = st.text_input("Employer", key=f"{unit_code}_p2_emp_{idx}", value=entry["employer"])
             entry["years_worked"] = st.text_input("Years worked (e.g., 2013–2015)", key=f"{unit_code}_p2_years_{idx}", value=entry["years_worked"])
             entry["evidence_id"] = st.text_input("Evidence ID", key=f"{unit_code}_p2_eid_{idx}", value=entry["evidence_id"])
-            entry["generated_statement"] = f"Key responsibilities relevant to {unit_code} {unit_name}."
+            entry["generated_statement"] = f"Key responsibilities relevant to {unit_code} {unit_name}"
 
         # --- Part 3 ---
         st.subheader("Part 3 — Professional Development")
@@ -201,7 +193,7 @@ for unit_code in validated_codes:
             entry["pd_title"] = st.text_input("PD title", key=f"{unit_code}_p3_title_{idx}", value=entry["pd_title"])
             entry["year"] = st.text_input("Year (YYYY)", key=f"{unit_code}_p3_year_{idx}", value=entry["year"])
             entry["evidence_id"] = st.text_input("Evidence ID", key=f"{unit_code}_p3_eid_{idx}", value=entry["evidence_id"])
-            entry["generated_statement"] = f"This professional development enhanced my ability to meet criteria for {unit_code} {unit_name}."
+            entry["generated_statement"] = f"This professional development enhanced my ability to meet criteria for {unit_code} {unit_name}"
 
 # --- Step 4 ---
 st.header("Step 4 — QA and Export")
