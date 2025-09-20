@@ -11,16 +11,32 @@ from docx.shared import Inches
 def normalise_space(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "")).strip()
 
+def unique_preserve(items: List[str]) -> List[str]:
+    seen = set()
+    out = []
+    for it in items:
+        it_n = normalise_space(it)
+        if it_n and it_n not in seen:
+            seen.add(it_n)
+            out.append(it_n)
+    return out
+
 def all_doc_text_lines(doc: Document) -> Iterable[str]:
     for p in doc.paragraphs:
         if p.text:
             yield p.text
     for tbl in doc.tables:
         for row in tbl.rows:
+            # join cell text per cell to avoid repeating paragraph-level duplicates
             for cell in row.cells:
+                # combine paragraphs inside a cell but dedupe consecutive duplicates
+                parts = []
                 for p in cell.paragraphs:
                     if p.text:
-                        yield p.text
+                        if not parts or normalise_space(parts[-1]) != normalise_space(p.text):
+                            parts.append(p.text)
+                if parts:
+                    yield " ".join(parts)
 
 def load_docx(file_bytes: bytes) -> Document:
     return Document(io.BytesIO(file_bytes))
@@ -110,8 +126,8 @@ def get_section_text_for_unit(doc: Document, unit_code: str) -> Tuple[str, List[
                         break
             break
 
-    # keep unique, trimmed and short list
-    perf_bullets = [normalise_space(x) for x in perf_bullets][:12]
+    # dedupe while preserving order and trim
+    perf_bullets = unique_preserve(perf_bullets)[:12]
     return (normalise_space(app_excerpt), perf_bullets)
 
 def mask_evidence_id(eid: str) -> str:
@@ -229,6 +245,8 @@ for unit_code in validated_codes:
         qual_raw = st.text_area(f"Qualifications for {unit_code} (format: one per line)", key=f"qual_raw_{unit_code}", value="")
         if st.button(f"Parse Qualifications for {unit_code}", key=f"parse_q_{unit_code}"):
             quals = [normalise_space(q) for q in qual_raw.splitlines() if normalise_space(q)]
+            # dedupe
+            quals = list(dict.fromkeys(quals))
             parsed = []
             for i, q in enumerate(quals):
                 # create placeholders for year and evidence id
@@ -246,7 +264,7 @@ for unit_code in validated_codes:
                     year_val = st.text_input(f"Year for #{idx+1}", key=f"{unit_code}_p1_year_{idx}", value=entry.get("year",""))
                 with cols[2]:
                     eid_val = st.text_input(f"Evidence ID for #{idx+1}", key=f"{unit_code}_p1_eid_{idx}", value=entry.get("evidence_id",""))
-                # simple validation and save
+                # simple validation and save (Part 1 year must be 4-digit)
                 if year_val and not validate_year(year_val):
                     st.error("Enter a valid 4-digit year ≤ current year.")
                 st.session_state.units_data[key]["part1"][idx]["year"] = year_val
@@ -265,6 +283,8 @@ for unit_code in validated_codes:
                 # fallback: keep first 3 perf bullets
                 if not matched and bullets:
                     matched = bullets[:3]
+                # dedupe matched
+                matched = unique_preserve(matched)
                 col3 = f"Within this qualification, I was required to demonstrate competency in the skills and knowledge required to {app_excerpt or unit_name}.\n\nSpecifically relevant were the following course components:\n"
                 for m in matched:
                     col3 += f"• {m}\n"
@@ -280,20 +300,23 @@ for unit_code in validated_codes:
         # generate responsibilities by matching keywords from perf bullets
         responsibilities = []
         if perf_bullets:
-            # sample keywords
             sample = perf_bullets[:6]
-            for s in sample:
-                responsibilities.append(s)
+            responsibilities = unique_preserve(sample)
         else:
-            responsibilities = [
+            responsibilities = unique_preserve([
                 "Conduct pre-start checks and operate equipment under WHS procedures and SOPs.",
                 "Identify hazards and apply risk controls using site procedures.",
                 "Maintain records to meet compliance and traceability standards."
-            ]
+            ])
         p2_col3 = f"Key responsibilities and tasks relevant to the performance criteria for {unit_code} {unit_name}:\n"
         for r in responsibilities[:7]:
             p2_col3 += f"• {r}\n"
-        st.session_state.units_data[key]["part2"] = {"role_title": p2_role + (f" ({p2_employer})" if p2_employer else ""), "years_exp": p2_years, "evidence_id": p2_eid, "generated_statement": p2_col3}
+        role_full = p2_role
+        if p2_employer:
+            # avoid repeating employer if already present in role string
+            if p2_employer not in role_full:
+                role_full = f"{role_full} ({p2_employer})"
+        st.session_state.units_data[key]["part2"] = {"role_title": role_full, "years_exp": p2_years, "evidence_id": p2_eid, "generated_statement": p2_col3}
 
         # ---------- Part 3 ----------
         st.markdown("### Part 3 — Professional Development (PD)")
@@ -303,12 +326,13 @@ for unit_code in validated_codes:
         # generate PD alignment bullets (simple keywords)
         pd_bullets = []
         if perf_bullets:
-            pd_bullets = [perf_bullets[i] for i in range(min(4, len(perf_bullets)))]
+            pd_bullets = perf_bullets[:4]
         else:
             pd_bullets = [
                 "Reinforced safe work procedures and hazard identification.",
                 "Improved ability to apply risk controls and conduct pre-start checks."
             ]
+        pd_bullets = unique_preserve(pd_bullets)
         p3_col3 = f"This professional development enhanced my ability to meet the performance criteria for {unit_code} {unit_name}. Specifically, it:\n"
         for b in pd_bullets[:4]:
             p3_col3 += f"• {b}\n"
@@ -392,9 +416,29 @@ for i, row in enumerate(all_rows, start=1):
     st.write(f"Row {i}: {row['unit_code']} | {row['col1']} | {row['col2']} | Evidence: {mask_evidence_id(row['col4'])}")
 
 # Final checks
-invalid_years = [r for r in all_rows if r['col2'] and not validate_year(r['col2'])]
+# New validation: if col2 is 4 digits -> treat as year; if 1-3 digits -> treat as years of experience (0-80)
+invalid_years = []
+for r in all_rows:
+    v = (r['col2'] or "").strip()
+    if not v:
+        continue
+    # exactly 4 digits => validate as year
+    if re.fullmatch(r"\d{4}", v):
+        if not validate_year(v):
+            invalid_years.append((r, f"Invalid year: {v}"))
+    # 1-3 digits => years of experience (sanity check)
+    elif re.fullmatch(r"\d{1,3}", v):
+        num = int(v)
+        if num < 0 or num > 80:
+            invalid_years.append((r, f"Unreasonable years of experience: {v}"))
+    else:
+        # other formats (e.g., "2010-2013", "10 yrs", "N/A") are allowed — don't flag here
+        pass
+
 if invalid_years:
     st.error("Some rows have invalid years. Please edit and fix them before export.")
+    for r, msg in invalid_years:
+        st.write(f"- {r['unit_code']} | {r['col1']} | {r['col2']} -> {msg}")
     st.stop()
 
 # Show Pending IDs
